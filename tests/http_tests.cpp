@@ -13,6 +13,7 @@ Host: example.com
         WHEN("It is parsed") {
             using std::begin;
             using std::end;
+
             auto result = http::parse_request(
                 begin(HTTP_REQUEST),
                 end(HTTP_REQUEST)-1
@@ -31,7 +32,7 @@ Host: example.com
 
             AND_THEN("It should have the correct header values") {
                 auto request = result::value(std::move(result));
-                REQUIRE(1 == size(request.headers()));
+                REQUIRE(1 == request.headers().size());
 
                 auto& header = *begin(request.headers());
                 REQUIRE(std::get<0>(header) == "Host");
