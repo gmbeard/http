@@ -4,6 +4,7 @@ add_executable(
     tests
     main.cpp
     http_tests.cpp
+    error_tests.cpp
 )
 
 target_compile_features(
