@@ -67,6 +67,7 @@ add_library(
     STATIC
         ${http-parser-sources}
         http.cpp
+        error.cpp
 #        $<TARGET_OBJECTS:http-parser-objects>
 #        $<TARGET_OBJECTS:http-objects>
 )

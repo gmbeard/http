@@ -1,10 +1,18 @@
 ﻿cmake_minimum_required(VERSION 3.7)
 
-set(CMAKE_PREFIX_PATH
-    ${CMAKE_CURRENT_SOURCE_DIR}/deps
+list(APPEND
+    CMAKE_PREFIX_PATH
+    ${CMAKE_CURRENT_LIST_DIR}/deps
+)
+
+list(APPEND
+    CMAKE_MODULE_PATH
+    ${CMAKE_CURRENT_LIST_DIR}/submodules/cmake
 )
 
 project(http CXX C)
+
+include(InstallExternals)
 
 find_package(Result REQUIRED)
 add_subdirectory(include)

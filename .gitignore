@@ -2,3 +2,6 @@ deps
 build
 *.swp
 *.tmp
+build
+deps
+*.swp

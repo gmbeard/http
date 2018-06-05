@@ -1,3 +1,6 @@
 [submodule "submodules/http-parser"]
 	path = submodules/http-parser
 	url = https://github.com/nodejs/http-parser.git
+[submodule "submodules/cmake"]
+	path = submodules/cmake
+	url = https://github.com/gmbeard/cmake-modules.git

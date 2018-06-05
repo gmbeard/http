@@ -7,7 +7,9 @@
 #include <string>
 
 namespace http {
+    namespace parser {
 #include "http_parser.h"
+    }
 
     enum class Method {
         Get,
@@ -35,6 +37,7 @@ namespace http {
     };
 
     struct HttpRequest {
+        friend struct HttpHeaderBuilder;
 
         inline auto method() const -> Method 
         { return protocol_.method; }
@@ -48,50 +51,28 @@ namespace http {
         inline auto headers() const -> HeaderContainer const& 
         { return headers_; }
 
-//    private:
+    private:
+        HttpRequest(HttpRequestProtocolHeader, HeaderContainer);
+
         HttpRequestProtocolHeader protocol_;
         HeaderContainer headers_;
     };
 
     struct HttpHeaderBuilder {
-        HttpHeaderBuilder(HttpRequestProtocolHeader p)
-            : proto_{p}
-        { }
-
+        HttpHeaderBuilder(HttpRequestProtocolHeader p);
         auto with_header(Header h) && 
-            -> HttpHeaderBuilder&&
-        {
-            headers_.emplace_back(std::move(h));
-            return std::move(*this);
-        }
-
+            -> HttpHeaderBuilder&&;
         auto with_headers(std::initializer_list<Header> h) &&
-            -> HttpHeaderBuilder&&
-        {
-            for (auto&& hdr : h) {
-                headers_.push_back(std::move(hdr));
-            }
-            return std::move(*this);
-        }
-
-        auto build() && -> HttpRequest {
-            return {
-                std::move(proto_),
-                std::move(headers_)
-            };
-        }
+            -> HttpHeaderBuilder&&;
+        auto build() && -> HttpRequest;
     private:
         HttpRequestProtocolHeader proto_;
         HeaderContainer headers_;    
     };
 
     struct HttpRequestBuilder {
-        
         auto with_protocol(HttpRequestProtocolHeader p) && 
-            -> HttpHeaderBuilder
-        {
-            return { std::move(p) };        
-        }
+            -> HttpHeaderBuilder;
     };
 
     template<typename Iterator>
