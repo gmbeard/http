@@ -31,10 +31,19 @@ if(HTTP_ENABLE_TESTS)
 endif()
 
 install(
+    FILES
+        ${CMAKE_CURRENT_LIST_DIR}/cmake/HttpConfig.cmake
+    DESTINATION 
+        lib/cmake/http
+)
+
+install(
     EXPORT
         httpTargets
     NAMESPACE 
         Http::
+    FILE 
+        HttpTargets.cmake
     DESTINATION 
         lib/cmake/http
 )
