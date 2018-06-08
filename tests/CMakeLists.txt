@@ -16,7 +16,7 @@ target_compile_features(
 target_compile_options(
     tests
     PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /permissive->
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Werror -Wextra>
 )
 

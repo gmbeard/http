@@ -1,6 +1,6 @@
 ﻿get_filename_component(
     PARSER_DIR 
-    ${CMAKE_CURRENT_SOURCE_DIR} 
+    ${CMAKE_CURRENT_LIST_DIR} 
     PATH
 )
 
@@ -17,6 +17,40 @@ set_source_files_properties(
     ${http-parser-sources}
     PROPERTIES
         LANGUAGE C
+)
+
+add_library(
+    httpParser
+    STATIC
+        ${http-parser-sources}
+)
+
+set_target_properties(
+    httpParser
+    PROPERTIES
+        LINKER_LANGUAGE C
+)
+
+target_compile_options(
+    httpParser
+    PRIVATE
+       # MSVC reports that http-parser has some signed/unsigned 
+       # mismatch comparisons. From what I can tell, they look 
+       # safe to ignore...
+       $<$<C_COMPILER_ID:MSVC>:/wd4018 /wd4244 /wd4456>
+)
+
+target_include_directories(
+    httpParser
+    PUBLIC
+        $<INSTALL_INTERFACE:include/http-parser>
+        $<BUILD_INTERFACE:${PARSER_DIR}>
+)
+
+add_library(
+    Http::httpParser 
+    ALIAS 
+    httpParser
 )
 
 #add_library(
@@ -65,7 +99,7 @@ set_source_files_properties(
 add_library(
     http 
     STATIC
-        ${http-parser-sources}
+#        ${http-parser-sources}
         http.cpp
         error.cpp
 #        $<TARGET_OBJECTS:http-parser-objects>
@@ -81,21 +115,25 @@ target_compile_features(
 target_compile_options(
     http
     PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+        $<$<CXX_COMPILER_ID:MSVC>:/permissive- /W4 /WX>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Werror -Wextra>
-#        # MSVC reports that http-parser has some signed/unsigned 
-#        # mismatch comparisons. From what I can tell, they look 
-#        # safe to ignore...
-        $<$<C_COMPILER_ID:MSVC>:/wd4018>
 )
 
-target_include_directories(
+#target_include_directories(
+#    http
+#    PUBLIC
+#        $<TARGET_PROPERTY:includes,INTERFACE_INCLUDE_DIRECTORIES>
+#        $<TARGET_PROPERTY:Result::result,INTERFACE_INCLUDE_DIRECTORIES>
+##        $<INSTALL_INTERFACE:include/http-parser>
+##        $<BUILD_INTERFACE:${PARSER_DIR}>
+#)
+
+target_link_libraries(
     http
     PUBLIC
-        $<TARGET_PROPERTY:includes,INTERFACE_INCLUDE_DIRECTORIES>
-        $<TARGET_PROPERTY:Result::result,INTERFACE_INCLUDE_DIRECTORIES>
-        $<INSTALL_INTERFACE:include/http-parser>
-        $<BUILD_INTERFACE:${PARSER_DIR}>
+        includes
+        Result::result
+        Http::httpParser
 )
 
 add_library(
@@ -113,7 +151,7 @@ install(
 
 install(
     TARGETS
-        http 
+        httpParser http 
     EXPORT
         httpTargets
     ARCHIVE DESTINATION 
