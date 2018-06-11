@@ -2,9 +2,16 @@
 #define HTTP_HTTP_HPP_INCLUDED
 
 #include "result/result.hpp"
+#include "http/error.hpp"
 #include <vector>
 #include <tuple>
 #include <string>
+#include <algorithm>
+#include <type_traits>
+#include <iterator>
+#include <ostream>
+
+#include <cassert>
 
 namespace http {
     namespace parser {
@@ -12,10 +19,14 @@ namespace http {
     }
 
     enum class Method {
+        Delete = 0,
         Get,
+        Head,
         Post,
         Put,
-        Delete,
+        Connect,
+        Options,
+        Trace,
     };
 
     enum class Version {
@@ -23,10 +34,28 @@ namespace http {
         Http11,
     };
 
-    struct HttpParseError { };
+    template<typename T, typename Traits>
+    auto operator<<(std::basic_ostream<T, Traits>& os,
+                    Version const& v) -> std::basic_ostream<T, Traits>&
+    {
+        switch (v) {
+            case Version::Http10:
+                return os << "HTTP/1.0";
+            default:
+                return os << "HTTP/1.1";
+        }
+    }
+
+    template<typename T, typename Traits>
+    auto operator<<(std::basic_ostream<T, Traits>& os,
+                    std::pair<std::string, std::string> const& p)
+        -> std::basic_ostream<T, Traits>&
+    {
+        return os << std::get<0>(p) << ": " << std::get<1>(p);
+    }
 
     template<typename T>
-    using ParseResult = result::Result<T, HttpParseError>;
+    using ParseResult = result::Result<T, std::error_code>;
     using Header = std::pair<std::string, std::string>;
     using HeaderContainer = std::vector<Header>;
 
@@ -36,8 +65,14 @@ namespace http {
         Version version;
     };
 
+    struct HttpResponseProtocolHeader {
+        Version version;
+        size_t status_code;
+        std::string status_text;
+    };
+
     struct HttpRequest {
-        friend struct HttpHeaderBuilder;
+        friend struct HttpRequestHeaderBuilder;
 
         inline auto method() const -> Method 
         { return protocol_.method; }
@@ -58,31 +93,125 @@ namespace http {
         HeaderContainer headers_;
     };
 
-    struct HttpHeaderBuilder {
-        HttpHeaderBuilder(HttpRequestProtocolHeader p);
+    struct HttpResponse {
+        friend struct HttpResponseHeaderBuilder;
+
+        inline auto version() const -> Version
+        { return protocol_.version; }
+
+        inline auto status_code() const -> size_t
+        { return protocol_.status_code; }
+
+        inline auto status_text() const -> std::string const&
+        { return protocol_.status_text; }
+
+        inline auto headers() const -> HeaderContainer const&
+        { return headers_; }
+
+    private:
+        HttpResponse(HttpResponseProtocolHeader, HeaderContainer);
+
+        HttpResponseProtocolHeader protocol_;
+        HeaderContainer headers_;
+    };
+
+    template<typename T, typename Traits>
+    auto operator<<(std::basic_ostream<T, Traits>& os, 
+                    HttpResponse const& response) 
+        -> std::basic_ostream<T, Traits>&
+    {
+        os 
+            << response.version() << " "
+            << response.status_code() << " "
+            << response.status_text() << "\r\n";
+
+        for (auto const& h : response.headers()) {
+            os << h << "\r\n";
+        }
+
+        return os << "\r\n";
+    }
+
+    struct HttpRequestHeaderBuilder {
+        HttpRequestHeaderBuilder(HttpRequestProtocolHeader p);
         auto with_header(Header h) && 
-            -> HttpHeaderBuilder&&;
+            -> HttpRequestHeaderBuilder&&;
         auto with_headers(std::initializer_list<Header> h) &&
-            -> HttpHeaderBuilder&&;
+            -> HttpRequestHeaderBuilder&&;
+
+        auto with_headers(HeaderContainer&& headers) && {
+            headers_ = std::move(headers);
+            return std::move(*this);
+        }
+
         auto build() && -> HttpRequest;
     private:
         HttpRequestProtocolHeader proto_;
         HeaderContainer headers_;    
     };
 
-    struct HttpRequestBuilder {
-        auto with_protocol(HttpRequestProtocolHeader p) && 
-            -> HttpHeaderBuilder;
+    struct HttpResponseHeaderBuilder {
+        HttpResponseHeaderBuilder(HttpResponseProtocolHeader p);
+        auto with_header(Header h) && 
+            -> HttpResponseHeaderBuilder&&;
+        auto with_headers(std::initializer_list<Header> h) &&
+            -> HttpResponseHeaderBuilder&&;
+
+        auto with_headers(HeaderContainer&& headers) && {
+            headers_ = std::move(headers);
+            return std::move(*this);
+        }
+
+        auto build() && -> HttpResponse;
+    private:
+        HttpResponseProtocolHeader proto_;
+        HeaderContainer headers_;    
     };
 
-    template<typename Iterator>
-    auto parse_request(Iterator, Iterator) -> ParseResult<HttpRequest> {
-        return result::ok(HttpRequestBuilder { }
-            .with_protocol( { Method::Get, "/index", Version::Http11 } )
-            .with_headers({
-                std::make_pair("Host", "example.com")
-            })
-            .build());
+    struct HttpRequestBuilder {
+        auto with_protocol(HttpRequestProtocolHeader p) && 
+            -> HttpRequestHeaderBuilder;
+    };
+
+    struct HttpResponseBuilder {
+        auto with_protocol(HttpResponseProtocolHeader) &&
+            -> HttpResponseHeaderBuilder;
+    };
+
+    namespace detail {
+        auto parse_request(char const* data, size_t size) noexcept
+            -> ParseResult<std::pair<HttpRequest, size_t>>;
+
+        auto parse_response(char const* data, size_t size) noexcept
+            -> ParseResult<std::pair<HttpResponse, size_t>>;
+    }
+
+    template<
+        typename Iterator,
+        typename std::enable_if<
+            std::is_convertible<
+                typename std::iterator_traits<Iterator>::iterator_category,
+                std::random_access_iterator_tag>::value
+        >::type* = nullptr>
+    auto parse_request(Iterator first, Iterator last) noexcept
+        -> ParseResult<std::pair<HttpRequest, size_t>> 
+    {
+        return detail::parse_request(std::addressof(*first),
+                                     std::distance(first, last));
+    }
+
+    template<
+        typename Iterator,
+        typename std::enable_if<
+            std::is_convertible<
+                typename std::iterator_traits<Iterator>::iterator_category,
+                std::random_access_iterator_tag>::value
+        >::type* = nullptr>
+    auto parse_response(Iterator first, Iterator last) noexcept
+        -> ParseResult<std::pair<HttpResponse, size_t>> 
+    {
+        return detail::parse_response(std::addressof(*first),
+                                      std::distance(first, last));
     }
 }
 
