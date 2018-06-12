@@ -8,11 +8,18 @@
 SCENARIO("HTTP parsing", "[http]") {
     GIVEN("A valid HTTP request in bytes") {
         constexpr char HTTP_REQUEST[] = 
-            R"#(GET /index HTTP/1.1
-Host: example.com
-Content-Length: 0
+            "GET /index HTTP/1.1\r\n"
+            "Host: example.com\r\n"
+            "Transfer-Encoding: chunked\r\n"
+            "Content-Type: text/plain\r\n"
+            "\r\n"
+            "5\r\n"
+            "Hello\r\n"
+            "8\r\n"
+            ", World!\r\n"
+            "0\r\n"
+            "\r\n";
 
-)#";
         WHEN("It is parsed") {
             using std::begin;
             using std::end;
@@ -45,11 +52,15 @@ Content-Length: 0
 
             AND_THEN("It should have the correct header values") {
                 auto request = std::get<0>(result::value(std::move(result)));
-                REQUIRE(2 == request.headers().size());
+                REQUIRE(3 == request.headers().size());
 
                 auto& header = *begin(request.headers());
                 REQUIRE(std::get<0>(header) == "Host");
                 REQUIRE(std::get<1>(header) == "example.com");
+
+                auto& content_type_header = request.headers().back();
+                REQUIRE(std::get<0>(content_type_header) == "Content-Type");
+                REQUIRE(std::get<1>(content_type_header) == "text/plain");
             }
         }
     }
@@ -118,6 +129,7 @@ SCENARIO("HTTP serialization", "[serialization]") {
 
     GIVEN("A user-created HTTP response") {
 
+        auto content = std::string { "Hello, World!" };
         auto response = http::HttpResponseBuilder { }
             .with_protocol({ 
                 http::Version::Http11,
@@ -126,9 +138,9 @@ SCENARIO("HTTP serialization", "[serialization]") {
             })
             .with_headers({
                 std::make_pair("Server", "MyTestServer"),
-                std::make_pair("Content-Length", "0")
+                std::make_pair("Content-Type", "text/plain")
             })
-            .build();
+            .build(content.begin(), content.end());
 
         WHEN("It is serialized") {
 
@@ -144,11 +156,19 @@ SCENARIO("HTTP serialization", "[serialization]") {
                     buffer.begin() + stream.written()
                 );
 
-                REQUIRE(result);
+                REQUIRE_NOTHROW([&] {
+                    if (!result) {
+                        throw std::system_error { result::error(result) };
+                    }
+                }());
 
-                auto resp = result::value(result);
-                REQUIRE(std::get<1>(std::get<0>(resp).headers().at(0)) 
+                auto resp = std::get<0>(result::value(result));
+                REQUIRE(std::get<1>(resp.headers().at(0)) 
                     == "MyTestServer");
+
+                REQUIRE(std::string { resp.body().begin(), resp.body().end() }
+                    == "Hello, World!");
+
             }
         }
     }

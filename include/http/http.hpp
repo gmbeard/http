@@ -58,6 +58,7 @@ namespace http {
     using ParseResult = result::Result<T, std::error_code>;
     using Header = std::pair<std::string, std::string>;
     using HeaderContainer = std::vector<Header>;
+    using BodyContainer = std::vector<uint8_t>;
 
     struct HttpRequestProtocolHeader {
         Method method;
@@ -86,11 +87,17 @@ namespace http {
         inline auto headers() const -> HeaderContainer const& 
         { return headers_; }
 
+        inline auto body() const -> BodyContainer const&
+        { return body_; }
+
     private:
-        HttpRequest(HttpRequestProtocolHeader, HeaderContainer);
+        HttpRequest(HttpRequestProtocolHeader, 
+                    HeaderContainer,
+                    BodyContainer);
 
         HttpRequestProtocolHeader protocol_;
         HeaderContainer headers_;
+        BodyContainer body_;
     };
 
     struct HttpResponse {
@@ -108,11 +115,17 @@ namespace http {
         inline auto headers() const -> HeaderContainer const&
         { return headers_; }
 
+        inline auto body() const -> BodyContainer const&
+        { return body_; }
+
     private:
-        HttpResponse(HttpResponseProtocolHeader, HeaderContainer);
+        HttpResponse(HttpResponseProtocolHeader, 
+                     HeaderContainer,
+                     BodyContainer);
 
         HttpResponseProtocolHeader protocol_;
         HeaderContainer headers_;
+        BodyContainer body_;
     };
 
     template<typename T, typename Traits>
@@ -129,7 +142,12 @@ namespace http {
             os << h << "\r\n";
         }
 
-        return os << "\r\n";
+        os << "\r\n";
+
+        std::copy(response.body().begin(), 
+                  response.body().end(),
+                  std::ostream_iterator<uint8_t>(os));
+        return os;
     }
 
     struct HttpRequestHeaderBuilder {
@@ -145,6 +163,15 @@ namespace http {
         }
 
         auto build() && -> HttpRequest;
+        auto build(BodyContainer) && -> HttpRequest;
+
+        template<typename InputIterator>
+        auto build(InputIterator first, InputIterator last) &&
+            -> HttpRequest
+        {
+            return std::move(*this).build(BodyContainer { first, last });
+        }
+
     private:
         HttpRequestProtocolHeader proto_;
         HeaderContainer headers_;    
@@ -163,6 +190,15 @@ namespace http {
         }
 
         auto build() && -> HttpResponse;
+        auto build(BodyContainer) && -> HttpResponse;
+
+        template<typename InputIterator>
+        auto build(InputIterator first, InputIterator last) &&
+            -> HttpResponse
+        {
+            return std::move(*this).build(BodyContainer { first, last });
+        }
+
     private:
         HttpResponseProtocolHeader proto_;
         HeaderContainer headers_;    

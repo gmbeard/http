@@ -1,10 +1,15 @@
 #include "http/http.hpp"
+#include <cctype>
+#include <numeric>
 
 using namespace http;
 
-HttpRequest::HttpRequest(HttpRequestProtocolHeader h, HeaderContainer c)
+HttpRequest::HttpRequest(HttpRequestProtocolHeader h, 
+                         HeaderContainer c,
+                         BodyContainer b)
     :   protocol_ { std::move(h) }
     ,   headers_ { std::move(c) }
+    ,   body_ { std::move(b) }
 { }
 
 HttpRequestHeaderBuilder::HttpRequestHeaderBuilder(HttpRequestProtocolHeader p)
@@ -28,9 +33,16 @@ auto HttpRequestHeaderBuilder::with_headers(std::initializer_list<Header> h) &&
 }
 
 auto HttpRequestHeaderBuilder::build() && -> HttpRequest {
+    return std::move(*this).build(BodyContainer { });
+}
+
+auto HttpRequestHeaderBuilder::build(BodyContainer body) && 
+    -> HttpRequest 
+{
     return {
         std::move(proto_),
-        std::move(headers_)
+        std::move(headers_),
+        std::move(body)
     };
 }
 
@@ -40,9 +52,12 @@ auto HttpRequestBuilder::with_protocol(HttpRequestProtocolHeader p) &&
     return { std::move(p) };        
 }
 
-HttpResponse::HttpResponse(HttpResponseProtocolHeader h, HeaderContainer c)
+HttpResponse::HttpResponse(HttpResponseProtocolHeader h, 
+                           HeaderContainer c,
+                           BodyContainer b)
     :   protocol_ { std::move(h) }
     ,   headers_ { std::move(c) }
+    ,   body_ { std::move(b) }
 { }
 
 HttpResponseHeaderBuilder::HttpResponseHeaderBuilder(HttpResponseProtocolHeader p)
@@ -66,9 +81,16 @@ auto HttpResponseHeaderBuilder::with_headers(std::initializer_list<Header> h) &&
 }
 
 auto HttpResponseHeaderBuilder::build() && -> HttpResponse {
+    return std::move(*this).build(BodyContainer { });
+}
+
+auto HttpResponseHeaderBuilder::build(BodyContainer body) && 
+    -> HttpResponse 
+{
     return {
         std::move(proto_),
-        std::move(headers_)
+        std::move(headers_),
+        std::move(body)
     };
 }
 
@@ -96,6 +118,7 @@ struct ParsedRequestData {
 
     Slice path;
     HeaderContainer headers;
+    std::vector<Slice> body_chunks;
 };
 
 struct ParsedResponseData {
@@ -105,12 +128,14 @@ struct ParsedResponseData {
     ParsedResponseData() :
         status_text { nullptr, nullptr }
     ,   headers { }
+    ,   body_chunks { }
     {
         headers.reserve(32);
     }
 
     Slice status_text;
     HeaderContainer headers;
+    std::vector<Slice> body_chunks;
 };
 
 auto http::detail::parse_request(char const* bytes, size_t size) noexcept
@@ -144,6 +169,13 @@ auto http::detail::parse_request(char const* bytes, size_t size) noexcept
             [](auto* parser, auto const* data, auto len) -> int {
                 auto& pd = *reinterpret_cast<ParsedRequestData*>(parser->data);
                 pd.path = Slice { data, data + len };
+                return 0;
+            };
+
+        parser_settings.on_body =
+            [](auto* parser, auto const* data, auto len) -> int {
+                auto& pd = *reinterpret_cast<ParsedRequestData*>(parser->data);
+                pd.body_chunks.push_back({ data, data + len });
                 return 0;
             };
 
@@ -198,6 +230,30 @@ auto http::detail::parse_request(char const* bytes, size_t size) noexcept
                     std::string { std::get<1>(h).start, std::get<1>(h).end });
             });
 
+        auto body = std::vector<uint8_t> { };
+
+        body.reserve(
+            std::accumulate(data.body_chunks.begin(),
+                    data.body_chunks.end(),
+                    static_cast<size_t>(0),
+                    [](auto const& acc, auto const& item) {
+                        return acc + (item.end - item.start);
+                    })
+        );
+
+        std::for_each(
+            data.body_chunks.begin(),
+            data.body_chunks.end(),
+            [&](auto ch) {
+                assert(ch.start != nullptr);
+                assert(ch.end != nullptr);
+                std::copy(
+                    ch.start,
+                    ch.end,
+                    std::back_inserter(body)
+                );
+            });
+
         return result::ok(std::make_pair(
             HttpRequestBuilder { }
                 .with_protocol({ 
@@ -206,7 +262,7 @@ auto http::detail::parse_request(char const* bytes, size_t size) noexcept
                     Version::Http11 
                 })
                 .with_headers(std::move(hdrs))
-                .build(),
+                .build(std::move(body)),
             parsed_len
         ));
 
@@ -243,6 +299,13 @@ auto http::detail::parse_response(char const* bytes, size_t size) noexcept
             [](auto* parser, auto const* data, auto len) -> int {
                 auto& pd = *reinterpret_cast<ParsedResponseData*>(parser->data);
                 pd.status_text = Slice { data, data + len };
+                return 0;
+            };
+
+        parser_settings.on_body =
+            [](auto* parser, auto const* data, auto len) -> int {
+                auto& pd = *reinterpret_cast<ParsedResponseData*>(parser->data);
+                pd.body_chunks.push_back({ data, data + len });
                 return 0;
             };
 
@@ -292,6 +355,30 @@ auto http::detail::parse_response(char const* bytes, size_t size) noexcept
                     std::string { std::get<1>(h).start, std::get<1>(h).end });
             });
 
+        auto body = std::vector<uint8_t> { };
+
+        body.reserve(
+            std::accumulate(data.body_chunks.begin(),
+                    data.body_chunks.end(),
+                    static_cast<size_t>(0),
+                    [](auto const& acc, auto const& item) {
+                        return acc + (item.end - item.start);
+                    })
+        );
+
+        std::for_each(
+            data.body_chunks.begin(),
+            data.body_chunks.end(),
+            [&](auto ch) {
+                assert(ch.start != nullptr);
+                assert(ch.end != nullptr);
+                std::copy(
+                    ch.start,
+                    ch.end,
+                    std::back_inserter(body)
+                );
+            });
+
         return result::ok(std::make_pair(
             HttpResponseBuilder { }
                 .with_protocol({ 
@@ -303,7 +390,7 @@ auto http::detail::parse_response(char const* bytes, size_t size) noexcept
                     }
                 })
                 .with_headers(std::move(hdrs))
-                .build(),
+                .build(std::move(body)),
             parsed_len
         ));
 }
