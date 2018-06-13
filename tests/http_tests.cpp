@@ -4,6 +4,8 @@
 #include <streambuf>
 #include <iostream>
 #include <string>
+#include <functional>
+#include <cassert>
 
 SCENARIO("HTTP parsing", "[http]") {
     GIVEN("A valid HTTP request in bytes") {
@@ -116,13 +118,66 @@ Content-Length: 0
 
 template<typename T, typename Traits = std::char_traits<T>>
 struct VectorStreamBuf : std::basic_streambuf<T, Traits> {
-    VectorStreamBuf(std::vector<T>& v) {
-        this->setp(v.data(), v.data() + v.size());
+    using Base = std::basic_streambuf<T, Traits>;
+    using int_type = typename Base::int_type;
+    using char_type = typename Base::char_type;
+
+    VectorStreamBuf(std::vector<T>& v) :
+        storage_ { v }
+    {
+        this->setp(storage_.get().data(), 
+                   storage_.get().data() + storage_.get().size());
     }
 
     auto written() const -> size_t {
-        return this->pptr() - this->pbase();
+        return storage_.get().size() - (this->epptr() - this->pptr());
     }
+
+    auto overflow(int_type c) -> int_type override {
+        using std::max;
+        using std::min;
+        using size_type = decltype(storage_.get().size());
+
+        if (!Traits::eq_int_type(c, Traits::eof())) {
+            // Have we overflowed, or just asked to
+            // "flush"?...
+            if (this->pptr() == this->epptr()) {
+                auto old_size = storage_.get().size();
+
+                // Sanity check on the size of the buffer...
+                if (old_size >= 
+                    std::numeric_limits<size_type>::max() / 2) 
+                {
+                    return Traits::eof();
+                }
+
+                // Double the size of the underlying buffer (or set to
+                // a reasonable minimum size)...
+                auto new_size = max(
+                    min(std::numeric_limits<size_type>::max() / 2,
+                        storage_.get().size() * 2),
+                    static_cast<size_type>(64)
+                );
+
+                assert(new_size >= old_size);
+
+                storage_.get().resize(new_size);
+
+                // Update the streambuf's pointers to the new
+                // buffer "window"...
+                this->setp(storage_.get().data() + old_size,
+                           storage_.get().data() + new_size);
+            }
+
+            //  Write the value that caused the overflow...
+            return this->sputc(Traits::to_char_type(c));
+        }
+
+        return Traits::eof();
+    }
+
+private:
+    std::reference_wrapper<std::vector<T>> storage_;
 };
 
 SCENARIO("HTTP serialization", "[serialization]") {
@@ -138,17 +193,28 @@ SCENARIO("HTTP serialization", "[serialization]") {
             })
             .with_headers({
                 std::make_pair("Server", "MyTestServer"),
+                std::make_pair("Content-Length", std::to_string(content.size())),
                 std::make_pair("Content-Type", "text/plain")
             })
             .build(content.begin(), content.end());
 
         WHEN("It is serialized") {
 
-            auto buffer = std::vector<char>(256, '\0');
-            auto stream = VectorStreamBuf<char> { buffer };
-            std::basic_ostream<char> os { &stream };
+            using char_type = uint8_t;
+            auto buffer = std::vector<char_type>(16, '\0');
+            auto stream = VectorStreamBuf<char_type> { buffer };
+            std::basic_ostream<char_type> os { &stream };
 
             os << response;
+            REQUIRE(!os.bad());
+            os.flush();
+
+//            std::cerr 
+//                << std::string { 
+//                    buffer.begin(), 
+//                    buffer.begin() + stream.written() 
+//                }
+//                << "\n";
 
             THEN("It should result in a valid byte representation") {
                 auto result = http::parse_response(

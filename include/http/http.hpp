@@ -38,11 +38,19 @@ namespace http {
     auto operator<<(std::basic_ostream<T, Traits>& os,
                     Version const& v) -> std::basic_ostream<T, Traits>&
     {
+        constexpr char HTTP[] = "HTTP/1.";
+        constexpr char V1_0 = '0';
+        constexpr char V1_1 = '1';
+
+        os.write(
+            reinterpret_cast<T const*>(std::addressof(*std::begin(HTTP))),
+             std::distance(std::begin(HTTP), std::end(HTTP)-1));
+
         switch (v) {
             case Version::Http10:
-                return os << "HTTP/1.0";
+                return os.write(reinterpret_cast<T const*>(&V1_0), 1);
             default:
-                return os << "HTTP/1.1";
+                return os.write(reinterpret_cast<T const*>(&V1_1), 1);
         }
     }
 
@@ -51,7 +59,26 @@ namespace http {
                     std::pair<std::string, std::string> const& p)
         -> std::basic_ostream<T, Traits>&
     {
-        return os << std::get<0>(p) << ": " << std::get<1>(p);
+        constexpr char SEP[] = ": ";
+
+        auto const& first = std::get<0>(p);
+        auto const& second = std::get<1>(p);
+
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*first.begin())),
+            first.size());
+
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*std::begin(SEP))),
+            std::distance(std::begin(SEP), std::end(SEP)-1));
+//        os << ": ";
+
+        return os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*second.begin())),
+            second.size());
     }
 
     template<typename T>
@@ -128,25 +155,47 @@ namespace http {
         BodyContainer body_;
     };
 
-    template<typename T, typename Traits>
-    auto operator<<(std::basic_ostream<T, Traits>& os, 
+    template<typename T>
+    auto operator<<(std::basic_ostream<T>& os, 
                     HttpResponse const& response) 
-        -> std::basic_ostream<T, Traits>&
+        -> std::basic_ostream<T>&
     {
-        os 
-            << response.version() << " "
-            << response.status_code() << " "
-            << response.status_text() << "\r\n";
+        constexpr char NL[] = "\r\n";
+
+        os << response.version() << " ";
+
+        auto sc = std::to_string(response.status_code());
+
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*sc.begin())),
+            sc.size());
+
+        os << " ";
+
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*response.status_text().begin())),
+             response.status_text().size());
+
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*std::begin(NL))),
+            std::distance(std::begin(NL), std::end(NL)-1));
 
         for (auto const& h : response.headers()) {
             os << h << "\r\n";
         }
 
-        os << "\r\n";
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*std::begin(NL))),
+            std::distance(std::begin(NL), std::end(NL)-1));
 
-        std::copy(response.body().begin(), 
-                  response.body().end(),
-                  std::ostream_iterator<uint8_t>(os));
+        os.write(
+            reinterpret_cast<T const*>(
+                std::addressof(*response.body().begin())),
+             response.body().size());
         return os;
     }
 
@@ -232,8 +281,9 @@ namespace http {
     auto parse_request(Iterator first, Iterator last) noexcept
         -> ParseResult<std::pair<HttpRequest, size_t>> 
     {
-        return detail::parse_request(std::addressof(*first),
-                                     std::distance(first, last));
+        return detail::parse_request(
+            reinterpret_cast<char const*>(std::addressof(*first)),
+            std::distance(first, last));
     }
 
     template<
@@ -246,8 +296,9 @@ namespace http {
     auto parse_response(Iterator first, Iterator last) noexcept
         -> ParseResult<std::pair<HttpResponse, size_t>> 
     {
-        return detail::parse_response(std::addressof(*first),
-                                      std::distance(first, last));
+        return detail::parse_response(
+            reinterpret_cast<char const*>(std::addressof(*first)),
+            std::distance(first, last));
     }
 }
 
